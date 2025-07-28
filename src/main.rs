@@ -1,9 +1,12 @@
 use bitflags::bitflags;
 use futures_util::StreamExt;
-use inputtino::{DeviceDefinition, JoypadButton, JoypadStickPosition, XboxOneJoypad};
+use inputtino::{DeviceDefinition, JoypadButton, JoypadStickPosition, PS5Joypad};
 use local_ip_address::local_ip;
 use serde::{Deserialize, Serialize};
-use std::{i16, sync::{Arc, Mutex}};
+use std::{
+    i16,
+    sync::{Arc, Mutex},
+};
 use tokio::net::{TcpListener, TcpStream};
 use tokio_tungstenite::accept_async;
 
@@ -92,19 +95,19 @@ impl JoystickState {
 }
 
 struct ButtonStateHandle {
-    controller: XboxOneJoypad,
+    controller: PS5Joypad,
     button_state: ButtonState,
     triggers_state: (i16, i16),
     joysticks_state: (JoystickState, JoystickState),
 }
 
 impl ButtonStateHandle {
-    fn new(device: XboxOneJoypad) -> Self {
+    fn new(device: PS5Joypad) -> Self {
         Self {
             controller: device,
             button_state: ButtonState::empty(),
             triggers_state: (0, 0),
-            joysticks_state: (JoystickState { x: 0, y: 1000 }, JoystickState::new()),
+            joysticks_state: (JoystickState::new(), JoystickState::new()),
         }
     }
 
@@ -181,15 +184,15 @@ impl ButtonStateHandle {
 #[tokio::main(flavor = "current_thread")]
 async fn main() {
     let device = DeviceDefinition::new(
-        "XBox One controller",
-        0x045E,
-        0x02DD,
-        0x0100,
+        "Inputtino PS5 controller",
+        0x054C,
+        0x0CE6,
+        0x8111,
         "00:11:22:33:44",
         "00:11:22:33:44",
     );
-    let xbox = XboxOneJoypad::new(&device).unwrap();
-    xbox.set_stick(JoypadStickPosition::RS, 0, -i16::max_value());
+    let xbox = PS5Joypad::new(&device).unwrap();
+    // xbox.set_stick(JoypadStickPosition::RS, 0, -i16::max_value());
     let controller = Arc::new(Mutex::new(ButtonStateHandle::new(xbox)));
     let listener = TcpListener::bind("0.0.0.0:7879").await.unwrap();
     let local_ip_addr = local_ip().unwrap();
