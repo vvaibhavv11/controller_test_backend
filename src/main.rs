@@ -1,7 +1,8 @@
 use bitflags::bitflags;
 use futures_util::StreamExt;
-use inputtino::{DeviceDefinition, JoypadButton, JoypadStickPosition, PS5Joypad};
+use inputtino::{DeviceDefinition, JoypadButton, JoypadStickPosition, XboxOneJoypad};
 use local_ip_address::local_ip;
+use qrcode::{QrCode, render::unicode};
 use serde::{Deserialize, Serialize};
 use std::{
     i16,
@@ -58,7 +59,7 @@ impl ClientButton {
         self.to_joypad() as i32
     }
 }
-#[derive(Deserialize, Serialize)]
+#[derive(Deserialize, Serialize, Debug)]
 struct ClientData {
     name: ClientButton,
     is_pressed: Option<bool>,
@@ -95,14 +96,14 @@ impl JoystickState {
 }
 
 struct ButtonStateHandle {
-    controller: PS5Joypad,
+    controller: XboxOneJoypad,
     button_state: ButtonState,
     triggers_state: (i16, i16),
     joysticks_state: (JoystickState, JoystickState),
 }
 
 impl ButtonStateHandle {
-    fn new(device: PS5Joypad) -> Self {
+    fn new(device: XboxOneJoypad) -> Self {
         Self {
             controller: device,
             button_state: ButtonState::empty(),
@@ -115,10 +116,10 @@ impl ButtonStateHandle {
         let flag = ButtonState::from_bits_truncate(data.name.to_raw());
         if data.is_pressed.unwrap() {
             self.button_state.insert(flag);
-            self.update();
+            self.controller.set_pressed(self.button_state.bits());
         } else {
             self.button_state.remove(flag);
-            self.update();
+            self.controller.set_pressed(self.button_state.bits());
         }
     }
 
@@ -148,26 +149,16 @@ impl ButtonStateHandle {
 
     fn joysticks_drag(&mut self, data: ClientData) {
         if data.name == ClientButton::RS {
-            println!("the Rs button");
-            self.joysticks_state.1.x = data.x.unwrap();
-            self.joysticks_state.1.y = data.y.unwrap();
-            println!(
-                "x {} y {}",
-                self.joysticks_state.1.x, self.joysticks_state.1.y
-            );
+            self.joysticks_state.1.x = data.x.unwrap() * 650;
+            self.joysticks_state.1.y = data.y.unwrap() * 650;
             self.controller.set_stick(
                 JoypadStickPosition::RS,
                 self.joysticks_state.1.x,
                 self.joysticks_state.1.y,
             );
         } else {
-            println!("the Ls button");
-            self.joysticks_state.0.x = data.x.unwrap();
-            self.joysticks_state.0.y = data.y.unwrap();
-            println!(
-                "x {} y {}",
-                self.joysticks_state.0.x, self.joysticks_state.0.y
-            );
+            self.joysticks_state.0.x = data.x.unwrap() * 650;
+            self.joysticks_state.0.y = data.y.unwrap() * 650;
             self.controller.set_stick(
                 JoypadStickPosition::LS,
                 self.joysticks_state.0.x,
@@ -175,27 +166,30 @@ impl ButtonStateHandle {
             );
         }
     }
-
-    fn update(&self) {
-        self.controller.set_pressed(self.button_state.bits());
-    }
 }
 
 #[tokio::main(flavor = "current_thread")]
 async fn main() {
     let device = DeviceDefinition::new(
-        "Inputtino PS5 controller",
-        0x054C,
-        0x0CE6,
-        0x8111,
+        "Inputtino XBox One controller",
+        0x045E,
+        0x02DD,
+        0x0100,
         "00:11:22:33:44",
         "00:11:22:33:44",
     );
-    let xbox = PS5Joypad::new(&device).unwrap();
+    let xbox = XboxOneJoypad::new(&device).unwrap();
     // xbox.set_stick(JoypadStickPosition::RS, 0, -i16::max_value());
     let controller = Arc::new(Mutex::new(ButtonStateHandle::new(xbox)));
     let listener = TcpListener::bind("0.0.0.0:7879").await.unwrap();
     let local_ip_addr = local_ip().unwrap();
+    let code = QrCode::new(format!("{}:{}", local_ip_addr, 7879)).unwrap();
+    let qr = code
+        .render::<unicode::Dense1x2>()
+        .dark_color(unicode::Dense1x2::Dark)
+        .light_color(unicode::Dense1x2::Light)
+        .build();
+    println!("{}", qr);
     println!(
         "Websocket server is started in this address {} with port 7879",
         local_ip_addr
@@ -223,10 +217,11 @@ async fn handle_ws(stream: TcpStream, controller: Arc<Mutex<ButtonStateHandle>>)
                         continue;
                     }
                     if data.name == ClientButton::LS || data.name == ClientButton::RS {
-                        println!("detect the json");
+                        // println!("detect the json");
                         ctrl.joysticks_drag(data);
                         continue;
                     }
+                    println!("button is press {:?}", data);
                     ctrl.button_press(data);
                 }
                 Err(err) => eprintln!("JSON parse error: {:?}", err),
