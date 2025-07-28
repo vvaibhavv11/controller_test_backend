@@ -1,0 +1,13 @@
+    //test code
+    // let device = DeviceDefinition::new(
+    //     "XBox One controller",
+    //     0x045E,
+    //     0x02DD,
+    //     0x0100,
+    //     "00:11:22:33:44",
+    //     "00:11:22:33:44",
+    // );
+    // let xbox = XboxOneJoypad::new(&device).unwrap();
+    // loop {
+    //     xbox.set_pressed(JoypadButton::A as i32);
+    // }
