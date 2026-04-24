@@ -4,11 +4,11 @@ use inputtino::{DeviceDefinition, JoypadButton, JoypadStickPosition, XboxOneJoyp
 use local_ip_address::local_ip;
 use qrcode::{QrCode, render::unicode};
 use serde::{Deserialize, Serialize};
-use std::{
-    i16,
-    sync::{Arc, Mutex},
+use std::{i16, sync::Arc, time::Duration};
+use tokio::{
+    net::{TcpListener, TcpStream},
+    sync::Mutex, time::sleep,
 };
-use tokio::net::{TcpListener, TcpStream};
 use tokio_tungstenite::accept_async;
 
 #[allow(non_camel_case_types)]
@@ -112,18 +112,19 @@ impl ButtonStateHandle {
         }
     }
 
-    fn button_press(&mut self, data: ClientData) {
+    async fn button_press(&mut self, data: ClientData) {
         let flag = ButtonState::from_bits_truncate(data.name.to_raw());
         if data.is_pressed.unwrap() {
             self.button_state.insert(flag);
             self.controller.set_pressed(self.button_state.bits());
         } else {
+            sleep(Duration::from_millis(50)).await;
             self.button_state.remove(flag);
             self.controller.set_pressed(self.button_state.bits());
         }
     }
 
-    fn triggers_press(&mut self, data: ClientData) {
+    async fn triggers_press(&mut self, data: ClientData) {
         if data.is_pressed.unwrap() {
             if data.name == ClientButton::RT {
                 self.triggers_state.1 = i16::max_value();
@@ -147,7 +148,7 @@ impl ButtonStateHandle {
         }
     }
 
-    fn joysticks_drag(&mut self, data: ClientData) {
+    async fn joysticks_drag(&mut self, data: ClientData) {
         if data.name == ClientButton::RS {
             self.joysticks_state.1.x = data.x.unwrap() * 650;
             self.joysticks_state.1.y = data.y.unwrap() * 650;
@@ -211,18 +212,18 @@ async fn handle_ws(stream: TcpStream, controller: Arc<Mutex<ButtonStateHandle>>)
             // println!("data from ws {:?}", &msg.clone().into_text());
             match serde_json::from_str::<ClientData>(&msg.into_text().unwrap()) {
                 Ok(data) => {
-                    let mut ctrl = controller.lock().unwrap();
+                    let mut ctrl = controller.lock().await;
                     if data.name == ClientButton::LT || data.name == ClientButton::RT {
-                        ctrl.triggers_press(data);
+                        ctrl.triggers_press(data).await;
                         continue;
                     }
                     if data.name == ClientButton::LS || data.name == ClientButton::RS {
                         // println!("detect the json");
-                        ctrl.joysticks_drag(data);
+                        ctrl.joysticks_drag(data).await;
                         continue;
                     }
-                    println!("button is press {:?}", data);
-                    ctrl.button_press(data);
+                    // println!("button is press {:?}", data);
+                    ctrl.button_press(data).await;
                 }
                 Err(err) => eprintln!("JSON parse error: {:?}", err),
             }
